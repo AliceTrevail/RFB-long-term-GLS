@@ -161,6 +161,7 @@ df_metadataslim <- data.frame(ID = df_metadata$BirdID,
                               Species = "RFB", 
                               Population = "DG",
                               Age = "Adult",
+                              Sex = df_metadata$Sex,
                               Deploy_BrStage = df_metadata$Deploy_BrStage,
                               Retrieve_BrStage = df_metadata$Retrieve_BrStage)
 
