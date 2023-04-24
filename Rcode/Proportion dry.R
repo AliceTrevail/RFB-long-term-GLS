@@ -18,14 +18,13 @@ library(MuMIn)
 library(caret)
 library(ggeffects)
 library(flextable)
+library(patchwork)
 
 #-----------------------------#
 ## Load data ####
 #-----------------------------#
 
 df_GLSimmersion <- read_csv(here("Data", "WorkingDataFrames", "RFB_GLSimmersion_clean.csv"))
-
-
 
 #-----------------------------#
 ## Local times & sunrise/sunset ####
@@ -195,7 +194,7 @@ plot_base <- list(
   scale_y_discrete(limits = rev(sorted_ids)),
   scale_x_date(expand = c(0,0), date_breaks = "1 month", date_labels = "%b-%d", name = "Date (local time; GMT+6)"),
   scale_color_manual(name = "Breeding\nstage", values = br_stage_cols,
-                     labels = c("Pre-breeding", "Incubation", "Chick rearing", "Non-breeding", "Unkown")),
+                     labels = c("Pre-breeding", "Incubation", "Chick rearing", "Non-breeding", "Unknown")),
   guides(colour = guide_legend(override.aes = list(alpha = 1))),
   theme_light()
   )
@@ -248,232 +247,194 @@ ggsave(plot = p.prop.drynight_2020, filename = here("Figures", "Supplementary", 
 #-----------------------------#
 ## Model dry periods ####
 #-----------------------------#
-# set up table for model validation metrics
-
-diagnostics <- c("Model", "AUC", "Threshold", "accuracy", "sensitivity", "specificity", 
-                 "Pos.PP", "Neg.PP", "Precision", "Recall")
-mod.valid <- as.data.frame(matrix(ncol = 10, nrow = 2))
-colnames(mod.valid) <- diagnostics
-mod.valid$Model <- c("night", "day")
-
-### dry nights ####
 
 options(na.action = na.fail)
 
-df_GLSimmersion_daily_night <- df_GLSimmersion_daily_night %>%
-  mutate(month_f = as.factor(month),
-         year_f = as.factor(year))
-
-names(df_GLSimmersion_daily_night)
-
-mod.night <- glmer(drynight ~ month_f + Sex + known_br_stage + (1|ID), 
-                   data = df_GLSimmersion_daily_night,
-                   family = "binomial")
-summary(mod.night)
-
-dredge.night <- dredge(mod.night) 
-
-dredge.night.out <- dredge.night  %>%
-  tibble() %>%
-  select(-c(`(Intercept)`, weight)) %>%
-  flextable() %>%
-  colformat_double(j = c(5,6,7), digits = 2) %>% # round numbers of specific columns to 2 decimal places
-  add_header_row(values = as_paragraph(as_chunk(c("Explanatory variables", "Model selection metrics"))), colwidths = c(3,4), top = TRUE) %>% # add header row
-  set_header_labels(known_br_stage = 'Known breeding stage',
-                    month_f = 'Month') %>%
-  fontsize(size = 11, part = 'all') %>% # set font size for the table
-  autofit()
-  
-dredge.night.out
-save_as_docx(dredge.night.out, path = here("Tables", "Supplementary", "Mod_dredge_night.docx"), align = 'center')
-
-
-mod.night.upd <- glmer(drynight ~ month_f + known_br_stage + (1|ID), 
-                   data = df_GLSimmersion_daily_night,
-                   family = "binomial")
-
-summary(mod.night.upd)
-  
-modpred.night <- as.numeric(predict(mod.night.upd, type="response"))
-roccurve.night <- pROC::roc(df_GLSimmersion_daily_night$drynight, modpred.night)
-  
-t.night <- pROC::coords(roccurve.night, "best", ret = "threshold", transpose = F)[1,]
-mod.valid$Threshold[mod.valid$Model == "night"] <- t.night
-
-auc.night <- pROC::auc(roccurve.night)
-mod.valid$AUC[mod.valid$Model == "night"] <- auc.night
-
-  
-# calculate confusion matrix to understand ratios of true and false negatives and positives
-p.night <- as.factor(as.numeric(predict(mod.night.upd , type="response")>t))
-df_GLSimmersion_daily_night$drynight_f <- as.factor(df_GLSimmersion_daily_night$drynight)
-cm.night <- confusionMatrix(p.night,df_GLSimmersion_daily_night$drynight_f, positive = "1")
-cm.night
-
-mod.valid$accuracy[mod.valid$Model == "night"] <- cm.night$overall[[1]]*100
-mod.valid$sensitivity[mod.valid$Model == "night"] <- cm.night$byClass[["Sensitivity"]]
-mod.valid$specificity[mod.valid$Model == "night"] <- cm.night$byClass[["Specificity"]]
-mod.valid$Pos.PP[mod.valid$Model == "night"] <- cm.night$byClass[["Pos Pred Value"]]
-mod.valid$Neg.PP[mod.valid$Model == "night"] <- cm.night$byClass[["Neg Pred Value"]]
-mod.valid$Precision[mod.valid$Model == "night"] <- cm.night$byClass[["Precision"]]
-mod.valid$Recall[mod.valid$Model == "night"] <- cm.night$byClass[["Recall"]]
-
-
-# model predictions
-pred.night.br_stage <- ggemmeans(mod.night.upd, terms = c("known_br_stage")) %>%
-  tibble() %>%
-  mutate(labels = case_when(x == "S0" ~"Pre-breeding", 
-                            x == "S1" ~ "Incubation", 
-                            x == "S2" ~ "Chick rearing", 
-                            x == "NB" ~ "Non-breeding", 
-                            .default = "Unkown")) %>%
-  select(labels, predicted, std.error, conf.low, conf.high) %>%
-  rename('Known breeding stage' = labels,
-         'Estimate' = predicted,
-         's.e.' = std.error,
-         '2.5%CI' = conf.low,
-         '97.5%CI' = conf.high) %>%
-  mutate(time_period = "night")
-
-
-pred.night <- ggpredict(mod.night.upd, terms = c("month_f", "known_br_stage"))
-plot(pred.night)+
-  scale_color_manual(name = "Breeding\nstage", values = br_stage_cols,
-                                   labels = c("Pre-breeding", "Incubation", "Chick rearing", "Non-breeding", "Unkown"))+
-  theme_bw()
-
-df.pred.night <- pred.night %>%
-  tibble() %>%
-  rename("Month" = x) %>%
-  mutate(time_period = "night")
-
-
-### dry days ####
-
-options(na.action = na.fail)
+#-----------------------------#
+### combine day and night data ####
+#-----------------------------#
 
 df_GLSimmersion_daily_day <- df_GLSimmersion_daily_day %>%
+  mutate(time_period = "day")%>%
+  rename(dry = dryday)
+
+df_GLSimmersion_daily_night <- df_GLSimmersion_daily_night %>%
+  mutate(time_period = "night") %>%
+  rename(dry = drynight)
+
+df_GLSimmersion_daily_comb <- df_GLSimmersion_daily_day %>%
+  bind_rows(df_GLSimmersion_daily_night) %>%
   mutate(month_f = as.factor(month),
          year_f = as.factor(year))
 
-names(df_GLSimmersion_daily_day)
+#-----------------------------#
+### run full model ####
+#-----------------------------#
 
-mod.day <- glmer(dryday ~ month_f + Sex + known_br_stage +  (1|ID), 
-                   data = df_GLSimmersion_daily_day,
-                   family = "binomial")
-summary(mod.day)
+mod.comb <- glmer(dry ~ month_f:time_period + known_br_stage:time_period + 
+                    time_period + month_f + known_br_stage + Sex + (1|ID), 
+                 data = df_GLSimmersion_daily_comb,
+                 family = "binomial")
+summary(mod.comb)
 
-dredge.day <- dredge(mod.day) 
+#-----------------------------#
+### model selection ####
+#-----------------------------#
 
-dredge.day.out <- dredge.day  %>%
+dredge.comb <- dredge(mod.comb) 
+
+# save model selection results using flextable
+dredge.comb.out <- dredge.comb  %>%
   tibble() %>%
   select(-c(`(Intercept)`, weight)) %>%
   flextable() %>%
-  colformat_double(j = c(5,6,7), digits = 2) %>% # round numbers of specific columns to 2 decimal places
-  add_header_row(values = as_paragraph(as_chunk(c("Explanatory variables", "Model selection metrics"))), colwidths = c(3,4), top = TRUE) %>% # add header row
+  colformat_double(j = c(8,9,10), digits = 2) %>% # round numbers of specific columns to 2 decimal places
+  add_header_row(values = as_paragraph(as_chunk(c("Explanatory variables", "Interactions", "Model selection metrics"))), colwidths = c(4,2,4), top = TRUE) %>% # add header row
   set_header_labels(known_br_stage = 'Known breeding stage',
-                    month_f = 'Month') %>%
-  fontsize(size = 11, part = 'all') %>% # set font size for the table
-  autofit()
-dredge.day.out
-save_as_docx(dredge.day.out, path = here("Tables", "Supplementary", "Mod_dredge_day.docx"), align = 'center')
+                    month_f = 'Month',
+                    time_period = 'Time period',
+                    `known_br_stage:time_period` = "Known breeding stage : Time period",
+                    `month_f:time_period` = "Month : Time period") %>%
+  fontsize(size = 11, part = 'all') # set font size for the table
+dredge.comb.out
+save_as_docx(dredge.comb.out, path = here("Tables", "Supplementary", "Mod_dredge_comb.docx"), align = 'center')
 
 
-mod.day.upd <- glmer(dryday ~ month_f + known_br_stage + (1|year_f) + (1|ID), 
-                       data = df_GLSimmersion_daily_day,
-                       family = "binomial")
+# update to most parsimonious model
+mod.comb.upd <- glmer(dry ~ month_f:time_period + known_br_stage:time_period + 
+                        time_period + month_f + known_br_stage + (1|ID), 
+                      data = df_GLSimmersion_daily_comb,
+                      family = "binomial")
+summary(mod.comb.upd)
 
-summary(mod.day.upd)
 
-modpred.day <- as.numeric(predict(mod.day.upd, type="response"))
-roccurve.day <- pROC::roc(df_GLSimmersion_daily_day$dryday, modpred.day)
+#-----------------------------#
+### model validation ####
+#-----------------------------#
 
-t.day <- pROC::coords(roccurve.day, "best", ret = "threshold", transpose = F)[1,]
-mod.valid$Threshold[mod.valid$Model == "day"] <- t.day
+# set up table for model validation metrics
 
-auc.day <- pROC::auc(roccurve.day)
-mod.valid$AUC[mod.valid$Model == "day"] <- auc.day
+diagnostics <- c("AUC", "Threshold", "Accuracy", "Sensitivity", "Specificity", 
+                 "Positive Pred Value", "Negative Pred Value", "Precision", "Recall")
+mod.valid <- as.data.frame(matrix(nrow = 9, ncol = 2))
+colnames(mod.valid) <- c("Diagnostic", "Value")
+mod.valid$Diagnostic <- diagnostics
+
+# calculate roc curve
+modpred.comb <- as.numeric(predict(mod.comb.upd, type="response"))
+roccurve.comb <- pROC::roc(df_GLSimmersion_daily_comb$dry, modpred.comb)
+
+t.comb <- pROC::coords(roccurve.comb, "best", ret = "threshold", transpose = F)[1,]
+mod.valid$Value[mod.valid$Diagnostic == "Threshold"] <- t.comb
+
+auc.comb <- pROC::auc(roccurve.comb)
+mod.valid$Value[mod.valid$Diagnostic == "AUC"] <- auc.comb
 
 
 # calculate confusion matrix to understand ratios of true and false negatives and positives
-p.day <- as.factor(as.numeric(predict(mod.day.upd , type="response")>t))
-df_GLSimmersion_daily_day$dryday_f <- as.factor(df_GLSimmersion_daily_day$dryday)
-cm.day <- confusionMatrix(p.day,df_GLSimmersion_daily_day$dryday_f, positive = "1")
-cm.day
+p.comb <- as.factor(as.numeric(predict(mod.comb.upd , type="response")>t.comb))
+df_GLSimmersion_daily_comb$dry_f <- as.factor(df_GLSimmersion_daily_comb$dry)
+cm.comb <- confusionMatrix(p.comb, df_GLSimmersion_daily_comb$dry_f, positive = "1")
+cm.comb
 
-mod.valid$accuracy[mod.valid$Model == "day"] <- cm.day$overall[[1]]*100
-mod.valid$sensitivity[mod.valid$Model == "day"] <- cm.day$byClass[["Sensitivity"]]
-mod.valid$specificity[mod.valid$Model == "day"] <- cm.day$byClass[["Specificity"]]
-mod.valid$Pos.PP[mod.valid$Model == "day"] <- cm.day$byClass[["Pos Pred Value"]]
-mod.valid$Neg.PP[mod.valid$Model == "day"] <- cm.day$byClass[["Neg Pred Value"]]
-mod.valid$Precision[mod.valid$Model == "day"] <- cm.day$byClass[["Precision"]]
-mod.valid$Recall[mod.valid$Model == "day"] <- cm.day$byClass[["Recall"]]
+mod.valid$Value[mod.valid$Diagnostic == "Accuracy"] <- cm.comb$overall[[1]]*100
+mod.valid$Value[mod.valid$Diagnostic == "Sensitivity"] <- cm.comb$byClass[["Sensitivity"]]
+mod.valid$Value[mod.valid$Diagnostic == "Specificity"] <- cm.comb$byClass[["Specificity"]]
+mod.valid$Value[mod.valid$Diagnostic == "Positive Pred Value"] <- cm.comb$byClass[["Pos Pred Value"]]
+mod.valid$Value[mod.valid$Diagnostic == "Negative Pred Value"] <- cm.comb$byClass[["Neg Pred Value"]]
+mod.valid$Value[mod.valid$Diagnostic == "Precision"] <- cm.comb$byClass[["Precision"]]
+mod.valid$Value[mod.valid$Diagnostic == "Recall"] <- cm.comb$byClass[["Recall"]]
 
-
-# model predictions
-pred.day.br_stage <- ggemmeans(mod.day.upd, terms = c("known_br_stage")) %>%
-  tibble() %>%
-  mutate(labels = case_when(x == "S0" ~"Pre-breeding", 
-                            x == "S1" ~ "Incubation", 
-                            x == "S2" ~ "Chick rearing", 
-                            x == "NB" ~ "Non-breeding", 
-                            .default = "Unkown")) %>%
-  select(labels, predicted, std.error, conf.low, conf.high) %>%
-  rename('Known breeding stage' = labels,
-         'Estimate' = predicted,
-         's.e.' = std.error,
-         '2.5%CI' = conf.low,
-         '97.5%CI' = conf.high) %>%
-  mutate(time_period = "day")
-
-
-pred.day <- ggpredict(mod.day.upd, terms = c("month_f", "known_br_stage"))
-plot(pred.day)+
-  scale_color_manual(name = "Breeding\nstage", values = br_stage_cols,
-                     labels = c("Pre-breeding", "Incubation", "Chick rearing", "Non-breeding", "Unkown"))+
-  theme_bw()
-
-df.pred.day <- pred.day %>%
-  tibble() %>%
-  rename("Month" = x) %>%
-  mutate(time_period = "day")
-
-
-### combine model validation and parameters to export
 
 mod.valid.out <- mod.valid %>%
   flextable() %>%
-  colformat_double(j = c(2:10), digits = 2) %>% # round numbers of specific columns to 2 decimal places
-  set_header_labels(accuracy = 'Accuracy',
-                    sensitivity = 'Sensitivity',
-                    specificity = 'Specificity',
-                    Pos.PP = 'Positive predictive power',
-                    Neg.PP = 'Negative predictive power') %>%
-  fontsize(size = 11, part = 'all') # set font size for the table
-  
-  
+  colformat_double(j = 2, digits = 2) %>% # round numbers of specific columns to 2 decimal places
+  fontsize(size = 11, part = 'all') %>% # set font size for the table
+  autofit()
+
 mod.valid.out
 save_as_docx(mod.valid.out, path = here("Tables", "Supplementary", "Mod_AUC_night_day.docx"), align = 'center')
 
 
-pred_br_stage <- pred.night.br_stage %>%
-  bind_rows(., pred.day.br_stage) %>%
-  select(time_period, `Known breeding stage`, Estimate, s.e.)
-  
-pred_br_stage_out <- pred_br_stage %>%
-  pivot_wider(names_from = time_period, values_from = c(Estimate, s.e.)) %>%
-  select(`Known breeding stage`, Estimate_night, s.e._night,  Estimate_day, s.e._day) %>%
+#-----------------------------#
+### model predictions: time & breeding stage ####
+#-----------------------------#
+
+# extract predictions
+pred.time.br_stage <- ggemmeans(mod.comb.upd, terms = c("time_period","known_br_stage")) %>%
+  tibble() %>%
+  select(x, group, predicted, std.error, conf.low, conf.high) %>%
+  rename('time_period' = x,
+         'known_br_stage' = group)%>%
+  mutate(known_br_stage = factor(known_br_stage, levels = c("S0", "S1", "S2", "NB", "unknown")))
+
+# plot predictions
+p.time.br_stage <- ggplot(pred.time.br_stage, aes(x = known_br_stage, y = predicted, col = time_period))+
+  geom_point()+
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.1)+
+  scale_y_continuous(limits = c(0,1), expand = c(0,0))+
+  scale_x_discrete(labels = c("Pre-breeding", "Incubation", "Chick rearing", "Non-breeding", "Unknown"))+
+  scale_color_viridis_d(begin = 0.6, end = 0.2, name = "Time period", option = 'mako')+
+  theme_light()+
+  labs(x= "Known breeding stage", y = "Predicted probability dry")
+p.time.br_stage
+
+# tabulate predictions
+pred_br_stage_out <- pred.time.br_stage %>%
+  select(time_period, known_br_stage, predicted, std.error) %>%
+  pivot_wider(names_from = time_period, values_from = c(predicted, std.error)) %>%
+  select(known_br_stage, predicted_night, std.error_night,  predicted_day, std.error_day) %>%
+  mutate(known_br_stage = case_when(known_br_stage == "S0" ~"Pre-breeding", 
+                                    known_br_stage == "S1" ~ "Incubation", 
+                                    known_br_stage == "S2" ~ "Chick rearing", 
+                                    known_br_stage == "NB" ~ "Non-breeding", 
+                                    .default = "Unknown")) %>%
   flextable() %>%
-  set_header_labels(Estimate_night = 'Estimate',
-                    Estimate_day = 'Estimate',
-                    s.e._night = '± s.e.',
-                    s.e._day = '± s.e.') %>%
+  set_header_labels(known_br_stage = "Known breeding stage",
+                    predicted_night = 'Estimate',
+                    predicted_day = 'Estimate',
+                    std.error_night = '± s.e.',
+                    std.error_day = '± s.e.') %>%
   colformat_double(j = c(2,3,4,5), digits = 2) %>% # round numbers of specific columns to 2 decimal places
   add_header_row(values = as_paragraph(as_chunk(c("Known breeding stage", "Probability of dry night", "Probability of dry day"))), colwidths = c(1,2,2), top = TRUE) %>%# add header row
   merge_v(j = c(1), part = 'header') %>% # merge column names together
   autofit()
 pred_br_stage_out
-save_as_docx(mod.valid.out, path = here("Tables", "Mod_pred_night_day_brstage.docx"), align = 'center')
+save_as_docx(pred_br_stage_out, path = here("Tables", "Mod_pred_brstage.docx"), align = 'center')
 
-ggplot(pred_br_stage, aes(x = ))
 
+
+#-----------------------------#
+### model predictions: time & month ####
+#-----------------------------#
+
+# extract predictions
+pred.comb <- ggpredict(mod.comb.upd, terms = c("time_period", "month_f")) %>%
+  tibble() %>%
+  select(x, group, predicted, std.error, conf.low, conf.high) %>%
+  rename('time_period' = x,
+         'month' = group) %>%
+  mutate(month = month(as.numeric(month), label = TRUE))
+
+# plot predictions
+p.time.month <- ggplot(pred.comb, aes(x = month, y = predicted, col = time_period))+
+  geom_point(position=position_dodge(width=0.5))+
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.5, position=position_dodge(width=0.5))+
+  scale_color_viridis_d(begin = 0.6, end = 0.2, name = "Time period", option = 'mako')+
+  scale_y_continuous(limits = c(0,1), expand = c(0,0))+
+  theme_light()+
+  labs(x= "Month", y = "Predicted probability dry")
+p.time.month
+
+
+#-----------------------------#
+### Save plots ####
+#-----------------------------#
+
+patchwork.dry <- p.time.br_stage / p.time.month + 
+  plot_layout(guides = 'collect') + 
+  plot_annotation(tag_levels = 'a')
+
+
+ggsave(plot = patchwork.dry, filename = here("Figures", "Predicted_dry.png"),
+       width = 18, height = 18, units = "cm")
