@@ -139,6 +139,7 @@ df_GLSimmersion_daily_day <- df_GLSimmersion_knownbr %>%
 
 
 df_GLSimmersion_daily_night <- df_GLSimmersion_knownbr %>% 
+  mutate(month = month(NightDate)) %>%
   filter(dorn == "night") %>%
   group_by(ID, Sex, known_br_stage, NightID, NightDate, year, month) %>%
   summarise(daily.imm.fixes = length(Immersion),
@@ -150,6 +151,71 @@ df_GLSimmersion_daily_night <- df_GLSimmersion_knownbr %>%
   mutate(drynight = case_when(prop.dry >= 0.95 ~ 1, .default = 0)) 
 
 
+
+
+#-----------------------------#
+## Monthly summary of dry periods ####
+#-----------------------------#
+
+df_monthly_night <- df_GLSimmersion_daily_night %>%
+  group_by(ID, year, month) %>%
+  summarise(n = n(),
+            sum_dry = sum(drynight)) %>%
+  mutate(max_n = case_when(month == 2 ~ 28,
+                           month %in% c(4,6,9,11) ~ 30,
+                           .default = 31)) %>%
+  filter(n == max_n) %>% # filter to complete tracked months
+  mutate(percent_dry = (sum_dry/n)*100)
+
+# mean sum nights dry per month
+mean(df_monthly_night$sum_dry)
+# standard error
+sd(df_monthly_night$sum_dry) / sqrt(length(df_monthly_night$sum_dry))
+
+# mean percent nights dry per month
+mean(df_monthly_night$percent_dry)
+# standard error
+sd(df_monthly_night$percent_dry) / sqrt(length(df_monthly_night$percent_dry))
+# range
+min(df_monthly_night$percent_dry)
+max(df_monthly_night$percent_dry)
+
+
+#-----------------------------#
+## Monthly summary of not dry periods ####
+#-----------------------------#
+
+df_nights_notdry <- df_GLSimmersion_daily_night %>%
+  group_by(ID) %>%
+  mutate(same_lag = ifelse(drynight == lag(drynight), "TRUE", "FALSE"), # is the night still dry or not dry?
+         same_lead = ifelse(drynight == lead(drynight), "TRUE", "FALSE"), # is the next night transition between dry/not dry?
+         label = case_when(drynight == "0" & same_lag == "FALSE" ~ "first", # label first night not dry
+                           drynight == "0" & same_lead == "FALSE" ~ "last")) %>% # label last night not dry
+  filter(drynight == "0") %>% 
+  mutate(ndry_row = case_when(label == "first" ~ cur_group_rows())) %>% # assign group number based on row number for first points of trip only
+  fill(ndry_row) %>% # fill NAs with group number
+  group_by(ndry_row) %>%
+  ungroup() %>%
+  group_split(ID) %>%
+  purrr::map_df(~.x %>% group_by(ndry_row) %>% 
+                  mutate(ndry_num = cur_group_id())) %>% # assign sequential trip number
+  ungroup() %>% 
+  mutate(ndryID = paste0(ID, "_", ndry_num)) %>% # assign unique trip ID based on ID and trip number
+  select(-c(same_lag, same_lead, label, ndry_row, ndry_num)) %>% # remove intermediate columns
+  group_by(ndryID) %>%
+  mutate(ndryDate = first(NightDate)) %>%
+  ungroup()%>%
+  st_drop_geometry() # remove the geometry column
+
+df_consecutivenights_notdry <- df_nights_notdry %>%
+  mutate(month = month(ndryDate)) %>%
+  group_by(ID, month, ndryID) %>%
+  summarise(cons_notdry = n())
+
+mean(df_consecutivenights_notdry$cons_notdry)
+sd(df_consecutivenights_notdry$cons_notdry) / sqrt(length(df_consecutivenights_notdry$cons_notdry))
+min(df_consecutivenights_notdry$cons_notdry)
+max(df_consecutivenights_notdry$cons_notdry)
 
 
 #-----------------------------#
