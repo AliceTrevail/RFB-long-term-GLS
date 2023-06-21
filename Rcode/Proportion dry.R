@@ -19,6 +19,7 @@ library(caret)
 library(ggeffects)
 library(flextable)
 library(patchwork)
+library(cowplot)
 
 #-----------------------------#
 ## Load data ####
@@ -287,9 +288,18 @@ p.prop.dryday
 
 p.prop.drynight <- ggplot(subset(df_GLSimmersion_daily_night, drynight == 1 & !year == "2020"), aes(x = NightDate, y = ID, col = known_br_stage))+
   plot_base+
-  geom_point(alpha = 0.6)+
-  labs(title = "Temporal distribution of dry nights")
+  geom_point(alpha = 0.6)
 p.prop.drynight
+
+RFBimg <- "/Users/at687/Documents/BIOT/Seabird graphics/booby_roosting.png"
+
+t <- ggdraw() +
+  draw_plot(p.prop.drynight) +
+  draw_image(
+    RFBimg, x = 0.11, y = 0.14,
+    width = 0.15
+  )
+
 
 p.prop.drynight_2020 <- ggplot(subset(df_GLSimmersion_daily_night, drynight == 1), aes(x = NightDate, y = ID, col = known_br_stage))+
   plot_base+ rect_2020+
@@ -297,7 +307,7 @@ p.prop.drynight_2020 <- ggplot(subset(df_GLSimmersion_daily_night, drynight == 1
   labs(title = "Temporal distribution of dry nights")
 p.prop.drynight_2020
 
-ggsave(plot = p.prop.drynight, filename = here("Figures", "Dry_night_2018_2019.png"),
+ggsave(plot = t, filename = here("Figures", "Dry_night_2018_2019.png"),
        width = 24, height = 22, units = "cm")
 
 ggsave(plot = p.prop.dryday, filename = here("Figures", "Supplementary", "Dry_day.png"),

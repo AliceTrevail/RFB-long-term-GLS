@@ -121,6 +121,11 @@ df_RFB_IO_br <- RFB_range_br.sp %>%
   group_by(L2) %>%
   summarise(Lon = mean(X), Lat = mean(Y))
 
+# update colonies based on co-author knowledge of region
+df_RFB_IO_MN <- read_csv(here("Data", "ColonyLocs.csv")) 
+
+df_RFB_IO_br <- df_RFB_IO_br %>%
+  bind_rows(., df_RFB_IO_MN)
 
 #----------------------------------#
 ## 3. Calculate daily locations ####
@@ -203,7 +208,7 @@ df_kernel <- bind_rows(lapply(ls(pattern = "kernel_"), get))
 head(df_kernel)
 
 write.csv(df_kernel, here("Data", "WorkingDataFrames", "RFB_GLS_kernels.csv"))
-
+df_kernel <- read_csv(here("Data", "WorkingDataFrames", "RFB_GLS_kernels.csv"))
 
 sf_kernels <- sf::st_as_sf(df_kernel, coords = c("long", "lat"), crs = 3857) %>% st_transform(4326) 
 
@@ -316,31 +321,28 @@ plot_kernel_months <- ggplot() +
   facet_wrap(.~lubridate::month(as.numeric(Month), label = T), ncol = 5)+
   geom_sf(data = sf_world_map, fill="gray80", colour = "gray80")+
   annotate("point", x = 72.4, y = -7.24, colour = "#670004", cex = 1)+
+  annotation_scale(data = tibble(Month = lubridate::month(as.numeric("01"))), style = "ticks")+
   theme_light()+
   theme(panel.grid = element_blank())+
   labs(x = NULL, y = NULL)
 
-
+# Combine plots and save ####
 kernelplots <- ggarrange(
   plot_kernel_all, plot_kernel_months, labels = c("a", "b"), ncol = 1, 
   common.legend = T, legend = "right", heights = c(1,1.16)
 )
 
-RFBimg <- png::readPNG("/Users/at687/Documents/BIOT/Seabird graphics/white morph red footed booby adult.png", native = T)
+RFBimg <- magick::image_read("/Users/at687/Documents/BIOT/Seabird graphics/white morph red footed booby adult.png") %>%
+  magick::image_flop()
 
 t <- ggdraw() +
   draw_plot(kernelplots) +
   draw_image(
-    RFBimg, x = 1, y = 1, hjust = 1, vjust = 1, valign = 1,
+    RFBimg, x = 0.11, y = 0.39,
     width = 0.25
   )
 
 png(here("Figures", "Kernels.png"), width = 18, height = 20, units = "cm", res = 300)
 print(t)
 dev.off()
-
-# plot_kernel_all / plot_kernel_months +
-#   theme(plot.margin = margin(0, 0, 0, 0, "pt")) +
-#   plot_layout(guides = "collect")+
-#   plot_annotation(tag_levels = "a") & theme(legend.position = "right")
 
