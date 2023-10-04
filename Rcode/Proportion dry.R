@@ -5,21 +5,7 @@
 #-----------------------------#
 ## Load required libraries ####
 #-----------------------------#
-
-library(suncalc)
-library(sf)
-library(data.table)
-library(here) #for reproducible filepaths
-library(scales)
-library(tidyverse) #installed using install.packages("tidyverse")
-library(lubridate)
-library(lme4)
-library(MuMIn)
-library(caret)
-library(ggeffects)
-library(flextable)
-library(patchwork)
-library(cowplot)
+pacman::p_load(suncalc, sf, data.table, here, scales, tidyverse, lubridate, lme4, MuMIn, caret, ggeffects, flextable, patchwork, cowplot)
 
 #-----------------------------#
 ## Load data ####
@@ -169,9 +155,14 @@ df_monthly_night <- df_GLSimmersion_daily_night %>%
   mutate(percent_dry = (sum_dry/n)*100)
 
 # mean sum nights dry per month
-mean(df_monthly_night$sum_dry)
+mean_sum_night <- mean(df_monthly_night$sum_dry)
 # standard error
-sd(df_monthly_night$sum_dry) / sqrt(length(df_monthly_night$sum_dry))
+se_sum_night <- sd(df_monthly_night$sum_dry) / sqrt(length(df_monthly_night$sum_dry))
+
+mean_nights_yr <- (mean_sum_night)*12
+max_nights_yr <- (mean_sum_night+se_sum_night)*12
+min_nights_yr <- (mean_sum_night-se_sum_night)*12
+
 
 # mean percent nights dry per month
 mean(df_monthly_night$percent_dry)
@@ -180,6 +171,41 @@ sd(df_monthly_night$percent_dry) / sqrt(length(df_monthly_night$percent_dry))
 # range
 min(df_monthly_night$percent_dry)
 max(df_monthly_night$percent_dry)
+
+
+
+df_monthly_day <- df_GLSimmersion_daily_day %>%
+  #filter(known_br_stage == "S1") %>%
+  group_by(ID, year, month) %>%
+  summarise(n = n(),
+            sum_dry = sum(dryday)) %>%
+  mutate(max_n = case_when(month == 2 ~ 28,
+                           month %in% c(4,6,9,11) ~ 30,
+                           .default = 31)) %>%
+  filter(n == max_n) %>% # filter to complete tracked months
+  mutate(percent_dry = (sum_dry/n)*100)
+
+# mean sum nights dry per month
+mean_sum_day <- mean(df_monthly_day$sum_dry)
+# standard error
+se_sum_day <- sd(df_monthly_day$sum_dry) / sqrt(length(df_monthly_day$sum_dry))
+
+mean_days_yr <- (mean_sum_day)*12
+max_days_yr <- (mean_sum_day+se_sum_day)*12
+min_days_yr <- (mean_sum_day-se_sum_day)*12
+
+
+# mean percent nights dry per month
+mean(df_monthly_day$percent_dry)
+# standard error
+sd(df_monthly_day$percent_dry) / sqrt(length(df_monthly_day$percent_dry))
+# range
+min(df_monthly_day$percent_dry)
+max(df_monthly_day$percent_dry)
+
+mean_nights_yr+mean_days_yr
+max_nights_yr+max_days_yr
+min_nights_yr+min_days_yr
 
 
 #-----------------------------#
