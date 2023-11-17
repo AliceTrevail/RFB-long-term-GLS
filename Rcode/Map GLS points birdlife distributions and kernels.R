@@ -170,6 +170,25 @@ p_loc_resolution <- ggplot(df_locplot, aes(x = Lon, y = Lat, group = ID, col = R
 ggsave(plot = p_loc_resolution, filename = here("Figures", "Supplementary", "Loc_resolution.png"),
        width = 18, height = 12, units = "cm")
 
+CP <- df_GLSlocs %>%
+  dplyr::select(CPLon, CPLat) %>%
+  slice(.,1)
+
+# Plot individual daily locations
+p_loc_ind <- ggplot(df_GLSlocs_daily, aes(x = Lon, y = Lat, group = ID)) +
+  facet_wrap(facets = "ID")+
+  coord_cartesian(xlim = c(25, 125), ylim = c(-35, 25), expand = F)+
+  geom_point(alpha = 0.6, cex = 0.2)+
+  scale_y_continuous(n.breaks = 7)+
+  geom_polygon(data = world_map, aes(x = long, y = lat, group = group), fill="gray80", colour = "gray80")+
+  geom_point(data = CP, aes(x = CPLon, y = CPLat), inherit.aes = FALSE, colour = "#D40D12")+
+  guides(colour = guide_legend(override.aes = list(cex = 1)))+
+  theme_light()+
+  theme(panel.grid = element_blank())+labs(x = "Longitude (°E)", y = "Latitude (°N)")
+
+ggsave(plot = p_loc_ind, filename = here("Figures", "Supplementary", "Ind_locs.png"),
+       width = 22, height = 18, units = "cm")
+
 #----------------------------#
 ## 4. Kernels: population ####
 #----------------------------#

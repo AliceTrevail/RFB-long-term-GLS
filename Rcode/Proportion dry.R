@@ -275,6 +275,7 @@ rects_2020 <- id_dates %>%
 
 # plot defaults:
 br_stage_cols <- c("#a6dba0", "#5aae61", "#1b7837", "#9970ab", "#000000")
+br_stage_cols <- c("#fde725", "#7ad151", "#22a884", "#de4968", "#000000")
 
 plot_base <- list(
   facet_wrap(~year, ncol = 1, scales = "free_x"),
@@ -289,7 +290,7 @@ plot_base <- list(
   scale_color_manual(name = "Breeding\nstage", values = br_stage_cols,
                      labels = c("Pre-breeding", "Incubation", "Chick rearing", "Non-breeding", "Unknown")),
   guides(colour = guide_legend(override.aes = list(alpha = 1))),
-  theme_light()
+  theme_light(base_size = 12)
   )
 
 rect_2020 <- list(
@@ -317,7 +318,7 @@ p.prop.drynight <- ggplot(subset(df_GLSimmersion_daily_night, drynight == 1 & !y
   geom_point(alpha = 0.6)
 p.prop.drynight
 
-RFBimg <- "/Users/at687/Documents/BIOT/Seabird graphics/booby_roosting.png"
+RFBimg <- "/Users/at687/Library/CloudStorage/OneDrive-UniversityofExeter/BIOT/Seabird graphics/booby_roosting.png"
 
 t <- ggdraw() +
   draw_plot(p.prop.drynight) +
@@ -344,6 +345,50 @@ ggsave(plot = p.prop.dry24hr, filename = here("Figures", "Supplementary", "Dry_2
 
 ggsave(plot = p.prop.drynight_2020, filename = here("Figures", "Supplementary", "Dry_night_allyears.png"),
        width = 24, height = 26, units = "cm")
+
+
+# Reviewer comment test: plot landscape
+
+rects_retrieve_w <- id_dates %>% 
+  mutate(ymin = as.numeric(rev(ID)) - 0.5, 
+         ymax = as.numeric(rev(ID)) + 0.5, 
+         xmin = max_date, 
+         xmax = as_date("2020-02-28"),
+         year = year(max_date))
+
+
+plot_base_nofacet <- list(
+  geom_rect(data = rects_deploy, 
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = "grey80", alpha = 0.5, inherit.aes = FALSE),
+  geom_rect(data = rects_retrieve_w, 
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            fill = "grey80", alpha = 0.5, inherit.aes = FALSE),
+  scale_y_discrete(limits = rev(sorted_ids)),
+  scale_x_date(expand = c(0,0), date_breaks = "1 month", date_labels = "%b-%d", name = "Date (local time; GMT+6)"),
+  scale_color_manual(name = "Breeding\nstage", values = br_stage_cols,
+                     labels = c("Pre-breeding", "Incubation", "Chick rearing", "Non-breeding", "Unknown")),
+  guides(colour = guide_legend(override.aes = list(alpha = 1))),
+  theme_light(base_size = 12)
+)
+
+p.prop.drynight_wide <- ggplot(subset(df_GLSimmersion_daily_night, drynight == 1), aes(x = NightDate, y = ID, col = known_br_stage))+
+  plot_base_nofacet+ 
+  geom_point(alpha = 0.6)+
+  labs(title = "Temporal distribution of dry nights")+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+p.prop.drynight_wide
+
+
+t_w <- ggdraw() +
+  draw_plot(p.prop.drynight_wide) +
+  draw_image(
+    RFBimg, x = 0.11, y = -0.16,
+    width = 0.12
+  )
+
+ggsave(plot = t_w, filename = here("Figures", "Dry_night_wide.png"),
+       width = 30, height = 15, units = "cm")
 
 
 #-----------------------------#
